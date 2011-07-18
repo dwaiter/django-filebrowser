@@ -11,7 +11,7 @@ Settings
 There's quite a few possibilities of customizing the |filebrowser| to fit your needs. Nonetheless, you should be able to start with the default settings.
 
 .. note::
-    All settings can be defined in your projects settings-file or the FileBrowsers settings-file (``settings.py``). When using the projects settings-file, you have to use the prefix ``FILEBROWSER_`` for every setting (e.g. ``FILEBROWSER_MEDIA_URL`` instead of ``MEDIA_URL``). 
+    All settings can be defined in your projects settings-file or the FileBrowsers settings-file (``settings.py``). When using the projects settings-file, you have to use the prefix ``FILEBROWSER_`` for every setting (e.g. ``FILEBROWSER_MEDIA_URL`` instead of ``MEDIA_URL``).
 
 Main URL/Paths Settings
 -----------------------
@@ -208,4 +208,9 @@ SEARCH_TRAVERSE
 ``True``, if you want to traverse all subdirectories when searching. Please note that with thousands of files/directories, this might take a while::
 
     SEARCH_TRAVERSE = getattr(settings, "FILEBROWSER_SEARCH_TRAVERSE", False)
+
+DEFAULT_PERMISSIONS
+^^^^^^^^^^^^^^^^^^^
+
+Forces chmod of all uploaded files.
 
