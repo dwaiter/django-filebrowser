@@ -1,8 +1,7 @@
 # coding: utf-8
 
 # general imports
-import itertools, os, re
-from time import gmtime, strftime
+import os, re
 
 # django imports
 from django.shortcuts import render_to_response, HttpResponse
@@ -11,21 +10,21 @@ from django.http import HttpResponseRedirect
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.cache import never_cache
 from django.utils.translation import ugettext as _
-from django.conf import settings
 from django import forms
 from django.core.urlresolvers import reverse
 from django.dispatch import Signal
 from django.core.paginator import Paginator, InvalidPage, EmptyPage
 from django.utils.encoding import smart_str
 from django.contrib import messages
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.core.files.base import ContentFile
 
 # filebrowser imports
 from filebrowser.settings import *
 from filebrowser.functions import get_breadcrumbs, get_filterdate, get_settings_var, handle_file_upload, convert_filename
 from filebrowser.templatetags.fb_tags import query_helper
 from filebrowser.base import FileListing, FileObject
-from filebrowser.decorators import flash_login_required, path_exists, file_exists
+from filebrowser.decorators import path_exists, file_exists
 
 # PIL import
 if STRICT_PIL:
@@ -35,6 +34,12 @@ else:
         from PIL import Image
     except ImportError:
         import Image
+
+# JSON import
+try:
+    import json
+except ImportError:
+    from django.utils import simplejson as json
 
 # CHOICES
 TRANSPOSE_CHOICES = (
@@ -160,21 +165,14 @@ createdir = staff_member_required(never_cache(createdir))
 
 
 @path_exists
+@csrf_protect
 def upload(request):
     """
     Multipe File Upload.
     """
-    from django.http import parse_cookie
     query = request.GET
-    abs_path = u'%s' % os.path.join(MEDIA_ROOT, DIRECTORY, query.get('dir', ''))
-    
-    # SESSION (used for flash-uploading)
-    cookie_dict = parse_cookie(request.META.get('HTTP_COOKIE', ''))
-    engine = __import__(settings.SESSION_ENGINE, {}, {}, [''])
-    session_key = cookie_dict.get(settings.SESSION_COOKIE_NAME, None)
     
     return render_to_response('filebrowser/upload.html', {
-        'session_key': session_key,
         'query': query,
         'title': _(u'Select files to upload'),
         'settings_var': get_settings_var(),
@@ -210,33 +208,52 @@ def _check_file(request):
 filebrowser_pre_upload = Signal(providing_args=["path", "file"])
 filebrowser_post_upload = Signal(providing_args=["path", "file"])
 
-@csrf_exempt
-@flash_login_required
+@csrf_protect
 def _upload_file(request):
     """
     Upload file to the server.
     """
     from django.core.files.move import file_move_safe
-    
-    if request.method == 'POST':
-        folder = request.POST.get('folder')
+
+    if request.method == "POST":
+        if request.is_ajax(): # Advanced (AJAX) submission
+            folder = request.GET.get('folder')
+            filedata = ContentFile(request.raw_post_data)
+            try:
+                filedata.name = convert_filename(request.GET['qqfile'])
+            except KeyError:
+                return HttpResponseBadRequest('Invalid request! No filename given.')
+        else: # Basic (iframe) submission
+            folder = request.POST.get('folder')
+            if len(request.FILES) == 1:
+                filedata = request.FILES.values()[0]
+            else:
+                raise Http404('Invalid request! Multiple files included.')
+            filedata.name = convert_filename(upload.name)
+
         fb_uploadurl_re = re.compile(r'^.*(%s)' % reverse("fb_upload"))
         folder = fb_uploadurl_re.sub('', folder)
         abs_path = os.path.join(MEDIA_ROOT, DIRECTORY, folder)
-        if request.FILES:
-            filedata = request.FILES['Filedata']
-            filedata.name = convert_filename(filedata.name)
-            filebrowser_pre_upload.send(sender=request, path=request.POST.get('folder'), file=filedata)
-            uploadedfile = handle_file_upload(abs_path, filedata)
-            # if file already exists
-            if os.path.isfile(smart_str(os.path.join(MEDIA_ROOT, DIRECTORY, folder, filedata.name))):
-                old_file = smart_str(os.path.join(abs_path, filedata.name))
-                new_file = smart_str(os.path.join(abs_path, uploadedfile))
-                file_move_safe(new_file, old_file, allow_overwrite=True)
-            # POST UPLOAD SIGNAL
-            filebrowser_post_upload.send(sender=request, path=request.POST.get('folder'), file=FileObject(smart_str(os.path.join(DIRECTORY, folder, filedata.name))))
-    return HttpResponse('True')
-#_upload_file = flash_login_required(_upload_file)
+
+        filebrowser_pre_upload.send(sender=request, path=request.POST.get('folder'), file=filedata)
+
+        uploadedfile = handle_file_upload(abs_path, filedata)
+
+        # if file already exists
+        if os.path.isfile(smart_str(os.path.join(MEDIA_ROOT, DIRECTORY, folder, filedata.name))):
+            old_file = smart_str(os.path.join(abs_path, filedata.name))
+            new_file = smart_str(os.path.join(abs_path, uploadedfile))
+            file_move_safe(new_file, old_file, allow_overwrite=True)
+
+        filebrowser_post_upload.send(sender=request, path=request.POST.get('folder'), file=FileObject(smart_str(os.path.join(DIRECTORY, folder, filedata.name))))
+
+        # let Ajax Upload know whether we saved it or not
+        ret_json = {'success': True, 'filename': filedata.name}
+
+        return HttpResponse(json.dumps(ret_json))
+
+_upload_file = staff_member_required(never_cache(_upload_file))
+
 
 
 @path_exists
