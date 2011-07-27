@@ -38,6 +38,15 @@
                 element: $('#file-uploader').get(0),
                 action: '{% url fb_do_upload %}',
 
+                fileTemplate: '<li>' +
+                    '<span class="qq-upload-file"></span>' +
+                    '<span class="qq-upload-spinner"></span>' +
+                    '<span class="qq-upload-size"></span>' +
+                    '<a class="qq-upload-cancel" href="#">Cancel</a>' +
+                    '<span class="qq-upload-failed-text">Failed</span>' +
+                    '<div class="progress-bar"><div class="content"></div></div>' +
+                '</li>',
+
                 params: { 'csrf_token': '{{ csrf_token }}',
                           'csrf_name': 'csrfmiddlewaretoken',
                           'csrf_xname': 'X-CSRFToken',
@@ -53,24 +62,19 @@
 
                     while (typeof item != "undefined") {
                         if (item.qqFileId == id) {
-                            return item;
+                            return $(item);
                         }
                         item = items.pop();
                     }
                 },
                 onProgress: function(id, fileName, loaded, total){
-                    var el = $(this.getItem(id));
-                    var progressbar = el.find('.progress-bar');
-
-                    if (progressbar.length == 0) {
-                        el.append('<div class="progress-bar"><div class="content"></div></div>');
-                    }
-
-                    el.find('.progress-bar .content').css('width', '' + (loaded/total * 100) +'%');
+                    var bar = this.getItem(id).find('.progress-bar .content');
+                    var new_width = '' + (loaded/total * 100) + '%';
+                    bar.css('width', new_width);
                 },
                 onComplete: function(id, fileName, resp){
                     if (resp.success) {
-                        $(this.getItem(id)).fadeOut();
+                        this.getItem(id).fadeOut();
                     }
                 },
 
