@@ -34,17 +34,6 @@
     })(django.jQuery);
     (function($){
         $(document).ready(function() {
-            var get_el_for_item_id = function(master_el, id) {
-                var items = $(master_el).find('.qq-upload-list li').get();
-                var item = items.pop();
-
-                while (typeof item != "undefined") {
-                    if (item.qqFileId == id) {
-                        return item;
-                    }
-                    item = items.pop();
-                }
-            };
             var uploader = new qq.FileUploader({
                 element: $('#file-uploader').get(0),
                 action: '{% url fb_do_upload %}',
@@ -58,8 +47,19 @@
                 minSizeLimit: 0,
                 debug: false,
 
+                getItem: function(id) {
+                    var items = $(this.element).find('.qq-upload-list li').get();
+                    var item = items.pop();
+
+                    while (typeof item != "undefined") {
+                        if (item.qqFileId == id) {
+                            return item;
+                        }
+                        item = items.pop();
+                    }
+                },
                 onProgress: function(id, fileName, loaded, total){
-                    var el = $(get_el_for_item_id(this.element, id));
+                    var el = $(this.getItem(id));
                     var progressbar = el.find('.progress-bar');
 
                     if (progressbar.length == 0) {
@@ -70,7 +70,7 @@
                 },
                 onComplete: function(id, fileName, resp){
                     if (resp.success) {
-                        $(get_el_for_item_id(this.element, id)).fadeOut();
+                        $(this.getItem(id)).fadeOut();
                     }
                 },
 
