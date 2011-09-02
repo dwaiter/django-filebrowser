@@ -4,7 +4,7 @@
 import os, shutil, re, datetime
 import urlparse
 import mimetypes
-from time import gmtime, strftime
+from time import gmtime, strftime, time
 
 # django imports
 from django.utils.translation import ugettext as _
@@ -12,7 +12,7 @@ from django.core.urlresolvers import reverse
 
 # filebrowser imports
 from filebrowser.settings import *
-from filebrowser.functions import get_file_type, url_join, get_version_path, get_original_path, sort_by_attr, version_generator
+from filebrowser.functions import get_file_type, url_join, get_version_path, get_original_path, sort_by_attr, version_generator, path_strip, url_strip
 from django.utils.encoding import smart_str, smart_unicode
 
 # PIL import
@@ -23,7 +23,6 @@ else:
         from PIL import Image
     except ImportError:
         import Image
-
 
 class FileListing():
     """
@@ -41,6 +40,12 @@ class FileListing():
         for fileobject in filelisting.files_listing_total():
             print fileobject.filetype
     """
+    # Four variables to store the length of a listing obtained by various listing methods
+    # (updated whenever a particular listing method is called).
+    _results_listing_total = None
+    _results_walk_total = None
+    _results_listing_filtered = None
+    _results_walk_total = None
     
     def __init__(self, path, filter_func=None, sorting_by=None, sorting_order=None):
         self.path = path
@@ -66,16 +71,25 @@ class FileListing():
                     filelisting.append(os.path.join(r,f))
         return filelisting
     
+    # Cached results of files_listing_total (without any filters and sorting applied)
+    _fileobjects_total = None
+    
     def files_listing_total(self):
         "Returns FileObjects for all files in listing"
-        files = []
-        for item in self.listing():
-            fileobject = FileObject(os.path.join(self.path, item))
-            files.append(fileobject)
+        if self._fileobjects_total == None:
+            self._fileobjects_total = []
+            for item in self.listing():
+                fileobject = FileObject(os.path.join(self.path, item))
+                self._fileobjects_total.append(fileobject)
+        
+        files = self._fileobjects_total
+        
         if self.sorting_by:
             files = sort_by_attr(files, self.sorting_by)
         if self.sorting_order == "desc":
             files.reverse()
+        
+        self._results_listing_total = len(files)
         return files
     
     def files_walk_total(self):
@@ -88,36 +102,50 @@ class FileListing():
             files = sort_by_attr(files, self.sorting_by)
         if self.sorting_order == "desc":
             files.reverse()
+        self._results_walk_total = len(files)
         return files
     
     def files_listing_filtered(self):
         "Returns FileObjects for filtered files in listing"
         if self.filter_func:
-            return filter(self.filter_func, self.files_listing_total())
-        return self.files_listing_total()
+            listing = filter(self.filter_func, self.files_listing_total())
+        else:
+            listing = self.files_listing_total()
+        self._results_listing_filtered = len(listing)
+        return listing
     
     def files_walk_filtered(self):
         "Returns FileObjects for filtered files in walk"
         if self.filter_func:
-            return filter(self.filter_func, self.files_walk_total())
-        return self.files_walk_total()
+            listing = filter(self.filter_func, self.files_walk_total())
+        else:
+            listing = self.files_walk_total()
+        self._results_walk_filtered = len(listing)
+        return listing
     
     def results_listing_total(self):
         "Counter: all files"
+        if self._results_listing_total != None:
+            return self._results_listing_total
         return len(self.files_listing_total())
     
     def results_walk_total(self):
         "Counter: all files"
+        if self._results_walk_total != None:
+            return self._results_walk_total
         return len(self.files_walk_total())
     
     def results_listing_filtered(self):
         "Counter: filtered files"
+        if self._results_listing_filtered != None:
+            return self._results_listing_filtered
         return len(self.files_listing_filtered())
     
     def results_walk_filtered(self):
         "Counter: filtered files"
+        if self._results_walk_filtered != None:
+            return self._results_walk_filtered
         return len(self.files_walk_filtered())
-
 
 class FileObject():
     """
@@ -140,10 +168,6 @@ class FileObject():
         self.filename_lower = self.filename.lower()
         self.filename_root = os.path.splitext(self.filename)[0]
         self.extension = os.path.splitext(self.filename)[1]
-        if os.path.isdir(self.path):
-            self.filetype = 'Folder'
-        else:
-            self.filetype = get_file_type(self.filename)
         self.mimetype = mimetypes.guess_type(self.filename)
     
     def __str__(self):
@@ -159,16 +183,34 @@ class FileObject():
         return len(self.url_save)
     
     # GENERAL ATTRIBUTES
+    _filetype_stored = None
+    def _filetype(self):
+        if self._filetype_stored != None:
+            return self._filetype_stored
+        if os.path.isdir(self.path):
+            self._filetype_stored = 'Folder'
+        else:
+            self._filetype_stored = get_file_type(self.filename)
+        return self._filetype_stored
+    filetype = property(_filetype)
     
+    _filesize_stored = None
     def _filesize(self):
+        if self._filesize_stored != None:
+            return self._filesize_stored
         if os.path.exists(self.path):
-            return os.path.getsize(self.path)
+            self._filesize_stored = os.path.getsize(self.path)
+            return self._filesize_stored
         return None
     filesize = property(_filesize)
     
+    _date_stored = None
     def _date(self):
+        if self._date_stored != None:
+            return self._date_stored
         if os.path.exists(self.path):
-            return os.path.getmtime(self.path)
+            self._date_stored = os.path.getmtime(self.path)
+            return self._date_stored
         return None
     date = property(_date)
     
@@ -182,14 +224,12 @@ class FileObject():
     
     def _path_relative(self):
         "path relative to MEDIA_ROOT"
-        directory_re = re.compile(r'^%s' % MEDIA_ROOT)
-        return u"%s" % directory_re.sub('', self.path)
+        return path_strip(self.path, MEDIA_ROOT)
     path_relative = property(_path_relative)
     
     def _path_relative_directory(self):
         "path relative to MEDIA_ROOT + DIRECTORY"
-        directory_re = re.compile(r'^%s' % os.path.join(MEDIA_ROOT,DIRECTORY))
-        return u"%s" % directory_re.sub('', self.path)
+        return path_strip(self.path, os.path.join(MEDIA_ROOT,DIRECTORY))
     path_relative_directory = property(_path_relative_directory)
     
     def _url(self):
@@ -199,8 +239,7 @@ class FileObject():
     
     def _url_relative(self):
         "URL, not including MEDIA_URL"
-        directory_re = re.compile(r'^%s' % MEDIA_URL)
-        return u"%s" % directory_re.sub('', self.url)
+        return url_strip(self.url, MEDIA_URL)
     url_relative = property(_url_relative)
     
     def _url_save(self):
@@ -246,13 +285,11 @@ class FileObject():
     # FOLDER ATTRIBUTES
     
     def _directory(self):
-        directory_re = re.compile(r'^%s' % os.path.join(MEDIA_ROOT, DIRECTORY))
-        return u"%s" % directory_re.sub('', self.path)
+        return path_strip(self.path, os.path.join(MEDIA_ROOT, DIRECTORY))
     directory = property(_directory)
     
     def _folder(self):
-        directory_re = re.compile(r'^%s' % os.path.join(MEDIA_ROOT, DIRECTORY))
-        return u"%s" % directory_re.sub('', self.head)
+        return path_strip(self.head, os.path.join(MEDIA_ROOT, DIRECTORY))
     folder = property(_folder)
     
     def _is_folder(self):

@@ -102,9 +102,9 @@ DEFAULT_SORTING_ORDER = getattr(settings, "FILEBROWSER_DEFAULT_SORTING_ORDER", "
 # regex to clean dir names before creation
 FOLDER_REGEX = getattr(settings, "FILEBROWSER_FOLDER_REGEX", r'^[\w._/-]+$')
 # Traverse directories when searching
-SEARCH_TRAVERSE = getattr(settings, "FILEBROWSER_SEARCH_TRAVERSE", False)
+SEARCH_TRAVERSE = getattr(settings, "FILEBROWSER_SEARCH_TRAVERSE", True)
 # Default Upload and Version Permissions
-FB_DEFAULT_PERMISSIONS = getattr(settings, "FILEBROWSER_SEARCH_TRAVERSE", 0664)
+DEFAULT_PERMISSIONS = getattr(settings, "FILEBROWSER_DEFAULT_PERMISSIONS", 0664)
 
 # EXTRA TRANSLATION STRINGS
 # The following strings are not availabe within views or templates

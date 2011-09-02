@@ -14,7 +14,7 @@ from django import forms
 from django.core.urlresolvers import reverse
 from django.dispatch import Signal
 from django.core.paginator import Paginator, InvalidPage, EmptyPage
-from django.utils.encoding import smart_str
+from django.utils.encoding import smart_unicode
 from django.contrib import messages
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.core.files.base import ContentFile
@@ -67,7 +67,6 @@ def filter_browse(item):
         return False
     return True
 
-
 @path_exists
 def browse(request):
     """
@@ -76,6 +75,7 @@ def browse(request):
     
     query = request.GET.copy()
     abs_path = u'%s' % os.path.join(MEDIA_ROOT, DIRECTORY, query.get('dir', ''))
+    
     filelisting = FileListing(abs_path,
         filter_func=filter_browse,
         sorting_by=query.get('o', DEFAULT_SORTING_BY),
@@ -86,18 +86,28 @@ def browse(request):
         listing = filelisting.files_walk_filtered()
     else:
         listing = filelisting.files_listing_filtered()
+    
+    # If we do a search, precompile the search pattern now
+    do_search = query.get("q")
+    if do_search:
+        re_q = re.compile(query.get("q").lower(), re.M)
+    
+    filter_type = query.get('filter_type')
+    filter_date = query.get('filter_date')
+    
     for fileobject in listing:
         # date/type filter
         append = False
-        if fileobject.filetype == query.get('filter_type', fileobject.filetype) and get_filterdate(query.get('filter_date', ''), fileobject.date or 0):
+        if (not filter_type or fileobject.filetype == filter_type) and (not filter_date or get_filterdate(filter_date, fileobject.date or 0)):
             append = True
         # search
-        if query.get("q") and not re.compile(query.get("q").lower(), re.M).search(fileobject.filename.lower()):
+        if do_search and not re_q.search(fileobject.filename.lower()):
             append = False
         # append
         if append:
             files.append(fileobject)
-    filelisting.results_total = filelisting.results_listing_filtered
+    
+    filelisting.results_total = len(listing)
     filelisting.results_current = len(files)
     
     p = Paginator(files, LIST_PER_PAGE)
@@ -198,7 +208,7 @@ def _check_file(request):
         for k,v in request.POST.items():
             if k != "folder":
                 v = convert_filename(v)
-                if os.path.isfile(smart_str(os.path.join(MEDIA_ROOT, DIRECTORY, folder, v))):
+                if os.path.isfile(smart_unicode(os.path.join(MEDIA_ROOT, DIRECTORY, folder, v))):
                     fileArray[k] = v
     
     return HttpResponse(simplejson.dumps(fileArray))
@@ -253,8 +263,6 @@ def _upload_file(request):
         return HttpResponse(json.dumps(ret_json))
 
 _upload_file = staff_member_required(never_cache(_upload_file))
-
-
 
 @path_exists
 @file_exists
@@ -346,12 +354,6 @@ def detail(request):
             new_name = form.cleaned_data['name']
             transpose = form.cleaned_data['transpose']
             try:
-                if new_name != fileobject.filename:
-                    filebrowser_pre_rename.send(sender=request, path=fileobject.path, name=fileobject.filename, new_name=new_name)
-                    fileobject.delete_versions()
-                    os.rename(fileobject.path, os.path.join(fileobject.head, new_name))
-                    filebrowser_post_rename.send(sender=request, path=fileobject.path, name=fileobject.filename, new_name=new_name)
-                    messages.add_message(request, messages.SUCCESS, _('Renaming was successful.'))
                 if transpose:
                     im = Image.open(fileobject.path)
                     new_image = im.transpose(int(transpose))
@@ -361,6 +363,12 @@ def detail(request):
                         new_image.save(fileobject.path, quality=VERSION_QUALITY)
                     fileobject.delete_versions()
                     messages.add_message(request, messages.SUCCESS, _('Transposing was successful.'))
+                if new_name != fileobject.filename:
+                    filebrowser_pre_rename.send(sender=request, path=fileobject.path, name=fileobject.filename, new_name=new_name)
+                    fileobject.delete_versions()
+                    os.rename(fileobject.path, os.path.join(fileobject.head, new_name))
+                    filebrowser_post_rename.send(sender=request, path=fileobject.path, name=fileobject.filename, new_name=new_name)
+                    messages.add_message(request, messages.SUCCESS, _('Renaming was successful.'))
                 if "_continue" in request.POST:
                     redirect_url = reverse("fb_detail") + query_helper(query, "filename="+new_name, "filename")
                 else:
